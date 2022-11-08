@@ -1,128 +1,90 @@
 package com.example.plugins
 
+import com.example.leaders
+import com.example.self
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
+import io.ktor.utils.io.core.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.io.InputStream
-import java.util.*
-import io.ktor.network.tls.*
-import io.ktor.utils.io.core.*
-import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import java.time.Duration
-import io.ktor.server.application.*
-import io.ktor.server.response.*
-import io.ktor.server.request.*
-import io.ktor.server.routing.*
+import java.nio.ByteBuffer
 
-fun Application.configureSockets() {
-
-
-    install(WebSockets) {
-        pingPeriod = Duration.ofSeconds(15)
-        timeout = Duration.ofSeconds(15)
-        maxFrameSize = Long.MAX_VALUE
-        masking = false
-    }
-
-    routing {
-        webSocket("/ws") { // websocketSession
-            for (frame in incoming) {
-                if (frame is Frame.Text) {
-                    val text = frame.readText()
-                    outgoing.send(Frame.Text("YOU SAID: $text"))
-                    if (text.equals("bye", ignoreCase = true)) {
-                        close(CloseReason(CloseReason.Codes.NORMAL, "Client said BYE"))
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Two mains are provided, you must first start EchoApp.Server, and then EchoApp.Client.
- * You can also start EchoApp.Server and then use a telnet client to connect to the echo server.
- */
-object EchoApp {
-    val selectorManager = ActorSelectorManager(Dispatchers.IO)
-    val DefaultPort = 9002
-
-    object Server {
-        @JvmStatic
-        fun main(args: Array<String>) {
-            runBlocking {
-                val serverSocket = aSocket(selectorManager).tcp().bind(port = DefaultPort)
-                println("Echo Server listening at ${serverSocket.localAddress}")
-                while (true) {
-                    val socket = serverSocket.accept()
-                    println("Accepted $socket")
-                    launch {
-                        val read = socket.openReadChannel()
-                        val write = socket.openWriteChannel(autoFlush = true)
-                        try {
-                            while (true) {
-                                val line = read.readUTF8Line()
-                                write.writeStringUtf8("$line\n")
-                            }
-                        } catch (e: Throwable) {
-                            socket.close()
+suspend fun UDPListener(){
+            println("Listening to UDP socket")
+            val serverSocket =
+                aSocket(SelectorManager(Dispatchers.IO)).udp().bind(InetSocketAddress(self.address, self.udpPort))
+            while (true) {
+                val input = serverSocket.incoming.receive()
+                val messageTemplate = HashMap<String, String>()
+                while (input.packet.isNotEmpty) {
+                    var message = input.packet.readUTF8Line()
+                    println("$message")
+                    if ("$message".length == 4) message?.let { messageTemplate.put("port", it) }
+                    else if ("$message" == "leader?") {
+                        if (message != null) {
+                            messageTemplate.put("message", message)
                         }
                     }
-                }
-            }
-        }
-    }
+                    else{
+                        if (message != null) {
+                            messageTemplate.put("address", message)
+                        }
+                    }
 
-    object Client {
-        @JvmStatic
-        fun main(args: Array<String>) {
-            runBlocking {
-                val socket = aSocket(selectorManager).tcp().connect("127.0.0.1", port = DefaultPort)
-                val read = socket.openReadChannel()
-                val write = socket.openWriteChannel(autoFlush = true)
-
-                launch(Dispatchers.IO) {
-                    while (true) {
-                        val line = read.readUTF8Line()
-                        println("server: $line")
+                    if (messageTemplate.keys.size == 3){
+                        var buf = BytePacketBuilder()
+                        buf.writeText("${self.isLeader}")
+                        serverSocket.outgoing.send(Datagram(buf.build(), InetSocketAddress(messageTemplate["address"]!!, messageTemplate["port"]!!.toInt())))
                     }
                 }
 
-                for (line in System.`in`.lines()) {
-                    println("client: $line")
-                    write.writeStringUtf8("$line\n")
+        }
+    println("Listening ended")
+}
+
+suspend fun TCPServer(){
+        println("Listening to TCP socket")
+        val server = aSocket(SelectorManager(Dispatchers.IO)).tcp().bind(InetSocketAddress(self.address, self.tcpPort))
+        while (true) {
+            val socket = server.accept()
+            println("Accepted connection to ${socket.remoteAddress}")
+                val receiveChannel = socket.openReadChannel()
+                val sendChannel = socket.openWriteChannel(autoFlush = true)
+                println("Received message ${receiveChannel.readUTF8Line()}")
+                try {
+                    var message = receiveChannel.readUTF8Line()
+                        println("Received message $message")
+                        if (message == "leader?") sendChannel.writeStringUtf8("${self.isLeader}")
+                } catch (e: Throwable) {
+                    socket.close()
                 }
-            }
-        }
-
-        private fun InputStream.lines() = Scanner(this).lines()
-
-        private fun Scanner.lines() = sequence {
-            while (hasNext()) {
-                yield(readLine())
-            }
-        }
+            socket.close()
     }
+
 }
 
-object TlsRawSocket {
-    @JvmStatic
-    fun main(args: Array<String>) {
-        runBlocking {
-            val selectorManager = ActorSelectorManager(Dispatchers.IO)
-            val socket = aSocket(selectorManager).tcp().connect("www.google.com", port = 443)
-                .tls(coroutineContext = coroutineContext)
-            val write = socket.openWriteChannel()
-            val EOL = "\r\n"
-            write.writeStringUtf8("GET / HTTP/1.1${EOL}Host: www.google.com${EOL}Connection: close${EOL}${EOL}")
-            write.flush()
-            println(socket.openReadChannel().readRemaining().readBytes().toString(Charsets.UTF_8))
-        }
-    }
+suspend fun UDPClient(address:InetSocketAddress){
+        val socket = aSocket(SelectorManager(Dispatchers.IO)).udp().connect(address)
+        val buffer = socket.openWriteChannel(true)
+        var m = arrayListOf<String>(self.address, self.udpPort.toString(), "is leader?")
+    for (c in m)
+        buffer.writeStringUtf8(c)
+        println("Sending message to $address")
+        socket.close()
 }
 
+suspend fun TCPClient(id:Int, address: InetSocketAddress, message:String){
+        val tcpSocket = aSocket(SelectorManager(Dispatchers.IO)).tcp().connect(address)
+        println("Establishing TCP connection for ${address.hostname}")
+        val read = tcpSocket.openReadChannel()
+        val write = tcpSocket.openWriteChannel(autoFlush = true)
+        write.writeStringUtf8(message)
+        var answer = read.readUTF8Line()
+        println(answer)
+        if (answer == "false") leaders.set(id, false)
+        if (true !in leaders.values) self.isLeader = true
+        println("$self has become the leader")
+}
