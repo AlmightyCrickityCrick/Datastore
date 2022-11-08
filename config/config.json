@@ -1,0 +1,29 @@
+{
+  "self": {
+    "id": 1,
+    "address": "http://data-store-1",
+    "httpPort": 8080,
+    "tcpPort": 8081,
+    "udpPort": 8082,
+    "isLeader": false
+  },
+  "peers": [
+    {
+      "id": 2,
+      "address": "http://data-store-1-1",
+      "httpPort": 8070,
+      "tcpPort": 8071,
+      "udpPort": 8072,
+      "isLeader": false
+    },
+    {
+      "id": 3,
+      "address": "http://data-store-2-1",
+      "httpPort": 8090,
+      "tcpPort": 8091,
+      "udpPort": 8092,
+      "isLeader": false
+    }
+  ],
+  "tu": 5000
+}
