@@ -25,8 +25,8 @@ fun main() {
     TU = system.tu
     for (p in system.peers) leaders[p.id]= true
     println(self)
-    CoroutineScope(Dispatchers.Default).launch {  UDPListener()}
-    CoroutineScope(Dispatchers.Default).launch { TCPServer() }
+    CoroutineScope(Dispatchers.Default).launch {  TCPServer.startServer()}
+    CoroutineScope(Dispatchers.Default).launch { UDPServer.startServer() }
     checkLeader()
     if (self.isLeader) println("$self is the leader")
     openHttp()
@@ -42,13 +42,14 @@ fun openHttp(){
 }
 
  fun checkLeader(){
-     runBlocking {
          while (!self.isLeader) {
-             delay(system.tu.toLong())
              println("Sending a message to peers")
-            for (p in system.peers) launch{TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), "leader?")}
-             //for (p in system.peers) launch{ UDPClient(InetSocketAddress(p.address, p.udpPort)) }
-
+             for (p in system.peers)
+                 TCPClient.sendMessage(
+                     p.id,
+                     InetSocketAddress(p.address, p.tcpPort),
+                     "leader?"
+                 )
          }
+             //for (p in system.peers) launch{ UDPClient(InetSocketAddress(p.address, p.udpPort)) }
      }
-}
