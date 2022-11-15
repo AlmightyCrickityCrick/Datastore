@@ -12,28 +12,29 @@ import java.io.File
 import kotlin.coroutines.CoroutineContext
 
 lateinit var system : Instance
-lateinit var self :Node
-var TU: Int = 0
-var leaders=HashMap<Int, Boolean>()
+var leaderStatus=HashMap<Int, Boolean>()
+var currentLeader = 0
 
-var data = HashMap<Int, String>()
+var data = HashMap<Int, Data>()
+var dataLocation = HashMap<Int, ArrayList<Int>>() // idData:listServers
+var faultToleranceSize = 0
 var count = 0
 var client = HttpClient()
+
 fun main() {
     system = Json.decodeFromString(Instance.serializer(), File("config/config.json").inputStream().readBytes().toString(Charsets.UTF_8))
-    self = system.self
-    TU = system.tu
-    for (p in system.peers) leaders[p.id]= true
-    println(self)
+    for (p in system.peers) leaderStatus[p.id]= true
+    faultToleranceSize = Math.floor((((system.peers.size + 1)/2).toDouble())).toInt() + 1
+    println(system.self)
     CoroutineScope(Dispatchers.Default).launch {  UDPListener()}
     CoroutineScope(Dispatchers.Default).launch { TCPServer() }
     checkLeader()
-    if (self.isLeader) println("$self is the leader")
+    if (system.self.isLeader) println("${system.self} is the leader")
     openHttp()
 }
 
 fun openHttp(){
-    embeddedServer(Netty, port = self.httpPort) {
+    embeddedServer(Netty, port = system.self.httpPort) {
         configureAdministration()
         configureRouting()
 
@@ -43,12 +44,21 @@ fun openHttp(){
 
  fun checkLeader(){
      runBlocking {
-         while (!self.isLeader) {
+         while (!system.self.isLeader) {
              delay(system.tu.toLong())
              println("Sending a message to peers")
-            for (p in system.peers) launch{TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), "leader?")}
+            for (p in system.peers) if(p.isUp)launch{TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), Message(MessageType.leaderRequest, "${system.self.id}"))}
              //for (p in system.peers) launch{ UDPClient(InetSocketAddress(p.address, p.udpPort)) }
 
          }
      }
+}
+
+fun synchronizeDataLocation(){
+    runBlocking {
+        for (p in system.peers) if(p.isUp)launch{ UDPClient(InetSocketAddress(p.address, p.udpPort), Message(MessageType.locationSync, Json.encodeToString(
+            SyncronizeLocationrequest.serializer(), SyncronizeLocationrequest(dataLocation)
+        ))
+        ) }
+    }
 }

@@ -1,90 +1,159 @@
 package com.example.plugins
 
-import com.example.leaders
-import com.example.self
+import com.example.*
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
+import io.ktor.util.network.*
 import io.ktor.utils.io.*
 import io.ktor.utils.io.core.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.nio.ByteBuffer
+import java.nio.channels.UnresolvedAddressException
 
-suspend fun UDPListener(){
-            println("Listening to UDP socket")
-            val serverSocket =
-                aSocket(SelectorManager(Dispatchers.IO)).udp().bind(InetSocketAddress(self.address, self.udpPort))
-            while (true) {
-                val input = serverSocket.incoming.receive()
-                val messageTemplate = HashMap<String, String>()
-                while (input.packet.isNotEmpty) {
-                    var message = input.packet.readUTF8Line()
-                    println("$message")
-                    if ("$message".length == 4) message?.let { messageTemplate.put("port", it) }
-                    else if ("$message" == "leader?") {
-                        if (message != null) {
-                            messageTemplate.put("message", message)
+fun UDPListener(){
+    runBlocking {
+        println("Listening to UDP socket")
+        val serverSocket =
+            aSocket(SelectorManager(Dispatchers.IO)).udp().bind(InetSocketAddress(system.self.address, system.self.udpPort))
+        while (true) {
+            val input = serverSocket.incoming.receive()
+            while (input.packet.isNotEmpty) {
+                var message = input.packet.readUTF8Line()
+                println("$message")
+                var m = message?.let { Json.decodeFromString(Message.serializer(), it) }
+                if (m != null) {
+                    println("UDP request received $m from ${input.address}")
+                    when(m.type){
+                        MessageType.serverDownAlertPassive -> {
+                            println("Received message that ${m.content} is down")
+                            for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = false
                         }
-                    }
-                    else{
-                        if (message != null) {
-                            messageTemplate.put("address", message)
-                        }
-                    }
 
-                    if (messageTemplate.keys.size == 3){
-                        var buf = BytePacketBuilder()
-                        buf.writeText("${self.isLeader}")
-                        serverSocket.outgoing.send(Datagram(buf.build(), InetSocketAddress(messageTemplate["address"]!!, messageTemplate["port"]!!.toInt())))
+                        MessageType.serverDownAlertActive -> {
+                            println("Received message that ${m.content} is down")
+                            var toAdd = ArrayList<Int>()
+                            for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = false
+                            for (obj in dataLocation.keys) if (dataLocation[obj]?.contains(m.content.toInt()) == true && dataLocation[obj]?.contains(system.self.id)==false){
+                                toAdd.add(obj)
+                                data.put(obj, Data(0, "", 0))
+                            }
+                            var lead:Node? = null
+                            checkLeader()
+                            for (p in system.peers) if (p.isLeader) {lead = p
+                            break}
+                            TCPClient(currentLeader, InetSocketAddress(lead!!.address, lead.tcpPort), Message(MessageType.updateLocations, Json.encodeToString(UpdateLocationRequest.serializer(), UpdateLocationRequest(system.self.id, toAdd))) )
+                        }
+                        MessageType.locationSync -> {
+                            var tmp =Json.decodeFromString(SyncronizeLocationrequest.serializer(), m.content)
+                            dataLocation = tmp.dataLocation
+                        }
+                        else ->{}
                     }
-                }
+                    }
+            }
 
         }
+    }
     println("Listening ended")
 }
 
-suspend fun TCPServer(){
+ fun TCPServer(){
+    runBlocking {
         println("Listening to TCP socket")
-        val server = aSocket(SelectorManager(Dispatchers.IO)).tcp().bind(InetSocketAddress(self.address, self.tcpPort))
+        val server = aSocket(SelectorManager(Dispatchers.IO)).tcp().bind(InetSocketAddress(system.self.address, system.self.tcpPort))
         while (true) {
             val socket = server.accept()
             println("Accepted connection to ${socket.remoteAddress}")
-                val receiveChannel = socket.openReadChannel()
-                val sendChannel = socket.openWriteChannel(autoFlush = true)
-                println("Received message ${receiveChannel.readUTF8Line()}")
+            val receiveChannel = socket.openReadChannel()
+            launch {
                 try {
-                    var message = receiveChannel.readUTF8Line()
-                        println("Received message $message")
-                        if (message == "leader?") sendChannel.writeStringUtf8("${self.isLeader}")
+                while (true) {
+                        var message = receiveChannel.readUTF8Line()
+                        var m = message?.let { Json.decodeFromString(Message.serializer(), it) }
+                    if (m != null) {
+                        println("TCP request received $m from ${socket.remoteAddress}")
+                        when(m.type){
+                            MessageType.leaderRequest -> {
+                                var peer :Node?= null
+                                    for (p in system.peers) if (p.id == m.content.toInt()) {
+                                        peer = p
+                                        break
+                                    }
+                               launch{
+                                   if (peer != null) {
+                                       TCPClient(peer.id, InetSocketAddress(peer.address, peer.tcpPort) ,Message(MessageType.leaderResponse, Json.encodeToString(LeaderMessage.serializer(), LeaderMessage(
+                                           system.self.id, system.self.isLeader))))
+                                   }
+                               }
+                            }
+                            MessageType.leaderResponse ->{
+                                var tmp = Json.decodeFromString(LeaderMessage.serializer(),m.content)
+                                leaderStatus[tmp.id] = tmp.isLeader
+                                if(tmp.isLeader) currentLeader = tmp.id
+                                if (true !in leaderStatus.values) {system.self.isLeader = true
+                                currentLeader = system.self.id}
+                            }
+                            MessageType.dataSend -> {
+                                var tmp = Json.decodeFromString(Data.serializer(), m.content)
+                                println("received $tmp")
+                                data.put(tmp.id, tmp)
+                            }
+
+                            MessageType.updateLocations -> {
+                                var tmp = Json.decodeFromString(UpdateLocationRequest.serializer(), m.content)
+                                for (i in tmp.datas) dataLocation[i]?.add(tmp.id)
+                                synchronizeDataLocation()
+                            }
+
+                            else -> {}
+                        }
+                    }
+                    }
                 } catch (e: Throwable) {
-                    socket.close()
+                        socket.close()
+
                 }
-            socket.close()
+            }
+        }
     }
 
 }
 
-suspend fun UDPClient(address:InetSocketAddress){
+suspend fun UDPClient(address:InetSocketAddress, message: Message){
         val socket = aSocket(SelectorManager(Dispatchers.IO)).udp().connect(address)
         val buffer = socket.openWriteChannel(true)
-        var m = arrayListOf<String>(self.address, self.udpPort.toString(), "is leader?")
-    for (c in m)
-        buffer.writeStringUtf8(c)
+        buffer.writeStringUtf8(Json.encodeToString(Message.serializer(), message) + "\n")
         println("Sending message to $address")
-        socket.close()
 }
 
-suspend fun TCPClient(id:Int, address: InetSocketAddress, message:String){
-        val tcpSocket = aSocket(SelectorManager(Dispatchers.IO)).tcp().connect(address)
+suspend fun TCPClient(id:Int, address: InetSocketAddress, message:Message){
+    try {
+    val tcpSocket = aSocket(SelectorManager(Dispatchers.IO)).tcp().connect(address)
         println("Establishing TCP connection for ${address.hostname}")
-        val read = tcpSocket.openReadChannel()
         val write = tcpSocket.openWriteChannel(autoFlush = true)
-        write.writeStringUtf8(message)
-        var answer = read.readUTF8Line()
-        println(answer)
-        if (answer == "false") leaders.set(id, false)
-        if (true !in leaders.values) self.isLeader = true
-        println("$self has become the leader")
+        write.writeStringUtf8(Json.encodeToString(Message.serializer(), message) + "\n")
+    } catch (err:UnresolvedAddressException) {
+        runBlocking {
+            launch {
+                var tmp = 0
+                UDPClient(
+                    InetSocketAddress(system.self.address, system.self.udpPort),
+                    Message(MessageType.serverDownAlertActive, "$id")
+                )
+                for (p in system.peers)
+                    if (tmp < faultToleranceSize - 1) {
+                        tmp++
+                        UDPClient(
+                            InetSocketAddress(p.address, p.udpPort),
+                            Message(MessageType.serverDownAlertActive, "$id")
+                        )
+                    }
+            }
+        }
+    }
 }

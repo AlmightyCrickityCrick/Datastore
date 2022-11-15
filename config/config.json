@@ -5,7 +5,9 @@
     "httpPort": 8080,
     "tcpPort": 8081,
     "udpPort": 8082,
-    "isLeader": true
+    "isLeader": false,
+    "isUp": false
+
   },
   "peers": [
     {
@@ -14,7 +16,9 @@
       "httpPort": 8070,
       "tcpPort": 8071,
       "udpPort": 8072,
-      "isLeader": false
+      "isLeader": false,
+      "isUp": false
+
     },
     {
       "id": 3,
@@ -22,7 +26,9 @@
       "httpPort": 8090,
       "tcpPort": 8091,
       "udpPort": 8092,
-      "isLeader": false
+      "isLeader": false,
+      "isUp": false
+
     }
   ],
   "tu": 5000
