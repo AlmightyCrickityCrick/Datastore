@@ -28,6 +28,7 @@ fun main() {
     println(system.self)
     CoroutineScope(Dispatchers.Default).launch {  UDPListener()}
     CoroutineScope(Dispatchers.Default).launch { TCPServer() }
+    system.self.isUp = true
     notifyUp()
     checkLeader()
     if (system.self.isLeader) println("${system.self} is the leader")

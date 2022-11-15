@@ -110,7 +110,26 @@ fun UDPListener(){
                                 println("Received $tmp")
                                 data.put(tmp.id, tmp)
                             }
-
+                            MessageType.dataGet -> {
+                                println("Received request to get data for ${m.content}")
+                                var tmp :Node? = null
+                                var d = data[m.content.toInt()]
+                                for (p in system.peers) if (p.id == currentLeader) tmp = p
+                                if (tmp != null) {
+                                    if (d != null) {
+                                        TCPClient(tmp.id,
+                                            InetSocketAddress(tmp.address, tmp.tcpPort),
+                                            Message(MessageType.dataSend, Json.encodeToString(Data.serializer(),
+                                                Data(d.id, d.content, d.modificationTime)
+                                            ))
+                                        )
+                                    }
+                                }
+                            }
+                            MessageType.dataDelete -> {
+                                println("Received delete request for ${m.content}")
+                                if(m.content.toInt() in data.keys) data.remove(m.content.toInt())
+                            }
                             MessageType.updateLocations -> {
                                 println("Received request to add a server to dataLocation Map")
                                 var tmp = Json.decodeFromString(UpdateLocationRequest.serializer(), m.content)
