@@ -1,17 +1,14 @@
 package com.example.plugins
 
-import com.example.client
-import com.example.count
-import com.example.data
-import com.example.system
+import com.example.*
 import io.ktor.client.request.*
 import io.ktor.server.routing.*
 import io.ktor.http.*
+import io.ktor.network.sockets.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.request.*
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 
@@ -22,20 +19,18 @@ fun Application.configureRouting() {
             if (dataId == null || dataId !in data.keys) {
                 call.respond("Data not found")
             } else {
-                var obj: String = data[dataId].toString()
+                var obj: String = data[dataId]!!.content
                 call.respond(Json.encodeToString(String.serializer(), obj))
             }
         }
 
         post("/post") {
             var d = call.receive<String>()
-            data[count] = d
+            var tmp = Data(count, d, System.currentTimeMillis())
+            data[count] = tmp
             call.respondText(count.toString())
             for (p in system.peers) {
-                println("http://${p.address}:${p.httpPort}/post/$count")
-                val resp = client.post("http://${p.address}:${p.httpPort}/post/$count") {
-                    setBody(d)
-                }
+                TCPClient(p.id, InetSocketAddress(p.address, p.udpPort), Message(MessageType.dataSend, Json.encodeToString(Data.serializer(), tmp)))
             }
             count++
         }
@@ -46,7 +41,7 @@ fun Application.configureRouting() {
             if (dataId == null) {
                 call.respond("Data not found")
             } else {
-                data.put(dataId, d)
+                data.put(dataId, Data(dataId, d, System.currentTimeMillis()))
                 call.respond(HttpStatusCode.Created)
             }
         }
