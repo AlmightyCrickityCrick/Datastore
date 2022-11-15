@@ -25,7 +25,9 @@ enum class MessageType{
     serverDownAlertPassive, //Sends notification that a server is down
     serverUp, //Sends notification that the server is up
     locationSync, //Syncronizes map with data location. Sent through UDP by leader
-    updateLocations //Sent to leader to ask to add the server to the dataLocations of those datas
+    updateLocations, //Sent to leader to ask to add the server to the dataLocations of those datas
+    dataDelete, //Sent to the servers when data is deleted with id of data to delete
+    dataGet, //placeHolder messageType that gets data from another server to  leader
 }
 
 @Serializable

@@ -8,6 +8,7 @@ import io.ktor.network.sockets.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.request.*
+import kotlinx.coroutines.delay
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
@@ -16,11 +17,27 @@ fun Application.configureRouting() {
     routing {
         get("get/{id}") {
             var dataId = call.parameters["id"]?.toInt()
-            if (dataId == null || dataId !in data.keys) {
+            if (dataId == null || dataId !in dataLocation.keys) {
                 call.respond("Data not found")
             } else {
-                var obj: String = data[dataId]!!.content
-                call.respond(Json.encodeToString(String.serializer(), obj))
+                var tmp:Data? = null
+                if(dataId !in data.keys){
+                    var src :Node? = null
+                    for (p in system.peers) if (dataLocation[dataId]?.contains(p.id) == true) {
+                        src = p
+                        break}
+                    while(dataId !in data.keys) {
+                        if (src != null) {
+                            TCPClient(src.id, InetSocketAddress(src.address, src.tcpPort), Message(MessageType.dataGet, "$dataId"))
+                        }
+                        delay(300)
+                    }
+                }
+                tmp = data[dataId]
+                if(dataLocation[dataId]?.contains(system.self.id) != true) data.remove(dataId)
+                if (tmp != null) {
+                    call.respond(Json.encodeToString(String.serializer(), tmp.content))
+                }
             }
         }
 
@@ -41,7 +58,7 @@ fun Application.configureRouting() {
                 data[count] = tmp
             }
             for (p in system.peers) {
-                if(p.id in toAdd)TCPClient(p.id, InetSocketAddress(p.address, p.udpPort), Message(MessageType.dataSend, Json.encodeToString(Data.serializer(), tmp)))
+                if(p.id in toAdd)TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), Message(MessageType.dataSend, Json.encodeToString(Data.serializer(), tmp)))
             }
             count++
             synchronizeDataLocation()
@@ -57,7 +74,7 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.Created)
                 if (dataLocation[dataId]?.contains(system.self.id) == true) data.put(dataId, tmp)
                 for (p in system.peers) {
-                    if(dataLocation[dataId]?.contains(p.id) == true)TCPClient(p.id, InetSocketAddress(p.address, p.udpPort), Message(MessageType.dataSend, Json.encodeToString(Data.serializer(), tmp)))
+                    if(dataLocation[dataId]?.contains(p.id) == true)TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), Message(MessageType.dataSend, Json.encodeToString(Data.serializer(), tmp)))
                 }
             }
         }
@@ -67,8 +84,13 @@ fun Application.configureRouting() {
             if (dataId == null || dataId !in data.keys) {
                 call.respond("Data not found")
             } else {
-                data.remove(dataId)
+                if(dataLocation[dataId]?.contains(system.self.id) == true)data.remove(dataId)
                 call.respond(HttpStatusCode.Gone)
+                for (p in system.peers) {
+                    if(dataLocation[dataId]?.contains(p.id) == true)TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), Message(MessageType.dataDelete, "$dataId"))
+                }
+                dataLocation.remove(dataId)
+                synchronizeDataLocation()
             }
         }
     }
