@@ -23,6 +23,7 @@ enum class MessageType{
     dataSync, //Sends all data from server for synchronization purposes
     serverDownAlertActive, //Sends notification that one of the servers isn't responding. Forces the servers to pick up its data
     serverDownAlertPassive, //Sends notification that a server is down
+    serverUp, //Sends notification that the server is up
     locationSync, //Syncronizes map with data location. Sent through UDP by leader
     updateLocations //Sent to leader to ask to add the server to the dataLocations of those datas
 }

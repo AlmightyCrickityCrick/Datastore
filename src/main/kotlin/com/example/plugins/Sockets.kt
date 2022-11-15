@@ -29,9 +29,14 @@ fun UDPListener(){
                 if (m != null) {
                     println("UDP request received $m from ${input.address}")
                     when(m.type){
+                        MessageType.serverUp ->{
+                            println("Received message that ${m.content} is up")
+                            for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = true
+                        }
                         MessageType.serverDownAlertPassive -> {
                             println("Received message that ${m.content} is down")
                             for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = false
+                            leaderStatus[m.content.toInt()] =  false
                         }
 
                         MessageType.serverDownAlertActive -> {
@@ -43,12 +48,14 @@ fun UDPListener(){
                                 data.put(obj, Data(0, "", 0))
                             }
                             var lead:Node? = null
+                            leaderStatus[m.content.toInt()] =  false
                             checkLeader()
                             for (p in system.peers) if (p.isLeader) {lead = p
                             break}
                             TCPClient(currentLeader, InetSocketAddress(lead!!.address, lead.tcpPort), Message(MessageType.updateLocations, Json.encodeToString(UpdateLocationRequest.serializer(), UpdateLocationRequest(system.self.id, toAdd))) )
                         }
                         MessageType.locationSync -> {
+                            println("Received Location Synchronization message")
                             var tmp =Json.decodeFromString(SyncronizeLocationrequest.serializer(), m.content)
                             dataLocation = tmp.dataLocation
                         }
@@ -100,11 +107,12 @@ fun UDPListener(){
                             }
                             MessageType.dataSend -> {
                                 var tmp = Json.decodeFromString(Data.serializer(), m.content)
-                                println("received $tmp")
+                                println("Received $tmp")
                                 data.put(tmp.id, tmp)
                             }
 
                             MessageType.updateLocations -> {
+                                println("Received request to add a server to dataLocation Map")
                                 var tmp = Json.decodeFromString(UpdateLocationRequest.serializer(), m.content)
                                 for (i in tmp.datas) dataLocation[i]?.add(tmp.id)
                                 synchronizeDataLocation()
@@ -152,7 +160,10 @@ suspend fun TCPClient(id:Int, address: InetSocketAddress, message:Message){
                             InetSocketAddress(p.address, p.udpPort),
                             Message(MessageType.serverDownAlertActive, "$id")
                         )
-                    }
+                    } else UDPClient(
+                        InetSocketAddress(p.address, p.udpPort),
+                        Message(MessageType.serverDownAlertPassive, "$id")
+                    )
             }
         }
     }

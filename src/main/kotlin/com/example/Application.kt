@@ -28,6 +28,7 @@ fun main() {
     println(system.self)
     CoroutineScope(Dispatchers.Default).launch {  UDPListener()}
     CoroutineScope(Dispatchers.Default).launch { TCPServer() }
+    notifyUp()
     checkLeader()
     if (system.self.isLeader) println("${system.self} is the leader")
     openHttp()
@@ -42,11 +43,17 @@ fun openHttp(){
     }.start(wait = true)
 }
 
+fun notifyUp(){
+    println("Notifying that the server is up")
+    runBlocking {
+    for (p in system.peers) launch{ UDPClient(InetSocketAddress(p.address, p.udpPort), Message(MessageType.serverUp, "${system.self.id}")) }
+    }
+}
  fun checkLeader(){
      runBlocking {
          while (!system.self.isLeader) {
              delay(system.tu.toLong())
-             println("Sending a message to peers")
+             println("Sending a message to peers about leaders")
             for (p in system.peers) if(p.isUp)launch{TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), Message(MessageType.leaderRequest, "${system.self.id}"))}
              //for (p in system.peers) launch{ UDPClient(InetSocketAddress(p.address, p.udpPort)) }
 
@@ -55,6 +62,7 @@ fun openHttp(){
 }
 
 fun synchronizeDataLocation(){
+    println("Synchronizing Location data")
     runBlocking {
         for (p in system.peers) if(p.isUp)launch{ UDPClient(InetSocketAddress(p.address, p.udpPort), Message(MessageType.locationSync, Json.encodeToString(
             SyncronizeLocationrequest.serializer(), SyncronizeLocationrequest(dataLocation)
