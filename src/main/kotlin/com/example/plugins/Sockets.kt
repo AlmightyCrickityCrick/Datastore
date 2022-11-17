@@ -6,10 +6,7 @@ import io.ktor.network.sockets.*
 import io.ktor.util.network.*
 import io.ktor.utils.io.*
 import io.ktor.utils.io.core.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.nio.ByteBuffer
@@ -31,28 +28,53 @@ fun UDPListener(){
                     when(m.type){
                         MessageType.serverUp ->{
                             println("Received message that ${m.content} is up")
-                            for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = true
+                            for (p in 0 until system.peers.size) if (system.peers[p].id == m.content.toInt()) system.peers[p].isUp = true
                         }
                         MessageType.serverDownAlertPassive -> {
                             println("Received message that ${m.content} is down")
-                            for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = false
+                            for (p in 0 until system.peers.size) if (system.peers[p].id  == m.content.toInt()) system.peers[p].isUp = false
                             leaderStatus[m.content.toInt()] =  false
                         }
 
                         MessageType.serverDownAlertActive -> {
                             println("Received message that ${m.content} is down")
                             var toAdd = ArrayList<Int>()
-                            for (p in system.peers) if (p.id == m.content.toInt()) p.isUp = false
-                            for (obj in dataLocation.keys) if (dataLocation[obj]?.contains(m.content.toInt()) == true && dataLocation[obj]?.contains(system.self.id)==false){
+                            for (p in 0 until system.peers.size) if (system.peers[p].id  == m.content.toInt()) system.peers[p].isUp = false
+                            leaderStatus[m.content.toInt()] = false
+                            for (obj in dataLocation.keys) if (dataLocation[obj]?.contains(m.content.toInt()) == true && dataLocation[obj]?.contains(
+                                    system.self.id
+                                ) == false
+                            ) {
                                 toAdd.add(obj)
                                 data.put(obj, Data(0, "", 0))
                             }
-                            var lead:Node? = null
-                            leaderStatus[m.content.toInt()] =  false
-                            checkLeader()
-                            for (p in system.peers) if (p.isLeader) {lead = p
-                            break}
-                            TCPClient(currentLeader, InetSocketAddress(lead!!.address, lead.tcpPort), Message(MessageType.updateLocations, Json.encodeToString(UpdateLocationRequest.serializer(), UpdateLocationRequest(system.self.id, toAdd))) )
+                            runBlocking {
+                            var lead: Node? = null
+                                while (lead == null) {
+                                    for (p in system.peers) if (p.isUp)
+                                            TCPClient(
+                                            p.id,
+                                            InetSocketAddress(p.address, p.tcpPort),
+                                            Message(MessageType.leaderRequest, "${system.self.id}")
+                                        )
+                                    delay(system.tu.toLong() * 10)
+                                    for (p in system.peers) if (leaderStatus[p.id] == true) {
+                                        lead = p
+                                        println("leader found $lead")
+                                        break
+                                    }}
+                                    TCPClient(
+                                        lead!!.id,
+                                        InetSocketAddress(lead!!.address, lead.tcpPort),
+                                        Message(
+                                            MessageType.updateLocations,
+                                            Json.encodeToString(
+                                                UpdateLocationRequest.serializer(),
+                                                UpdateLocationRequest(system.self.id, toAdd)
+                                            )
+                                        )
+                                    )
+                                }
                         }
                         MessageType.locationSync -> {
                             println("Received Location Synchronization message")
@@ -77,7 +99,7 @@ fun UDPListener(){
             val socket = server.accept()
             println("Accepted connection to ${socket.remoteAddress}")
             val receiveChannel = socket.openReadChannel()
-            launch {
+            launch(Dispatchers.IO) {
                 try {
                 while (true) {
                         var message = receiveChannel.readUTF8Line()
@@ -92,7 +114,7 @@ fun UDPListener(){
                                         break
                                     }
                                launch{
-                                   if (peer != null) {
+                                   if (peer != null && peer.isUp) {
                                        TCPClient(peer.id, InetSocketAddress(peer.address, peer.tcpPort) ,Message(MessageType.leaderResponse, Json.encodeToString(LeaderMessage.serializer(), LeaderMessage(
                                            system.self.id, system.self.isLeader))))
                                    }
@@ -101,9 +123,15 @@ fun UDPListener(){
                             MessageType.leaderResponse ->{
                                 var tmp = Json.decodeFromString(LeaderMessage.serializer(),m.content)
                                 leaderStatus[tmp.id] = tmp.isLeader
-                                if(tmp.isLeader) currentLeader = tmp.id
+                                if(tmp.isLeader) {
+
+                                    currentLeader = tmp.id
+                                    for (p in 0 until system.peers.size) if (system.peers[p].id  == tmp.id) system.peers[p].isLeader = true
+
+                                }
                                 if (true !in leaderStatus.values) {system.self.isLeader = true
                                 currentLeader = system.self.id}
+                                println("Current leader $leaderStatus")
                             }
                             MessageType.dataSend -> {
                                 var tmp = Json.decodeFromString(Data.serializer(), m.content)
@@ -142,7 +170,8 @@ fun UDPListener(){
                     }
                     }
                 } catch (e: Throwable) {
-                        socket.close()
+                    println("Error in server")
+                    socket.dispose()
 
                 }
             }
@@ -157,22 +186,21 @@ suspend fun UDPClient(address:InetSocketAddress, message: Message){
         buffer.writeStringUtf8(Json.encodeToString(Message.serializer(), message) + "\n")
         println("Sending message to $address")
 }
-
 suspend fun TCPClient(id:Int, address: InetSocketAddress, message:Message){
+    val tcpSocket :ASocket
     try {
-    val tcpSocket = aSocket(SelectorManager(Dispatchers.IO)).tcp().connect(address)
-        println("Establishing TCP connection for ${address.hostname}")
-        val write = tcpSocket.openWriteChannel(autoFlush = true)
-        write.writeStringUtf8(Json.encodeToString(Message.serializer(), message) + "\n")
-    } catch (err:UnresolvedAddressException) {
-        runBlocking {
-            launch {
+            tcpSocket = aSocket(SelectorManager(Dispatchers.IO)).tcp().connect(address)
+            println("Establishing TCP connection for ${address.hostname}")
+            val write = tcpSocket.openWriteChannel(autoFlush = true)
+            write.writeStringUtf8(Json.encodeToString(Message.serializer(), message) + "\n")
+    } catch (err:Exception) {
                 var tmp = 0
                 UDPClient(
                     InetSocketAddress(system.self.address, system.self.udpPort),
                     Message(MessageType.serverDownAlertActive, "$id")
                 )
-                for (p in system.peers)
+                for (p in system.peers) {
+                    if (p.id == id || !p.isUp) continue
                     if (tmp < faultToleranceSize - 1) {
                         tmp++
                         UDPClient(
@@ -183,7 +211,6 @@ suspend fun TCPClient(id:Int, address: InetSocketAddress, message:Message){
                         InetSocketAddress(p.address, p.udpPort),
                         Message(MessageType.serverDownAlertPassive, "$id")
                     )
+                }
             }
-        }
     }
-}

@@ -28,6 +28,7 @@ fun main() {
     println(system.self)
     CoroutineScope(Dispatchers.Default).launch {  UDPListener()}
     CoroutineScope(Dispatchers.Default).launch { TCPServer() }
+
     system.self.isUp = true
     notifyUp()
     checkLeader()
@@ -47,6 +48,7 @@ fun openHttp(){
 fun notifyUp(){
     println("Notifying that the server is up")
     runBlocking {
+        delay(3000)
     for (p in system.peers) launch{ UDPClient(InetSocketAddress(p.address, p.udpPort), Message(MessageType.serverUp, "${system.self.id}")) }
     }
 }
