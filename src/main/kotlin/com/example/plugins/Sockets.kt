@@ -164,6 +164,18 @@ fun UDPListener(){
                                 for (i in tmp.datas) dataLocation[i]?.add(tmp.id)
                                 synchronizeDataLocation()
                             }
+                            MessageType.dataSync ->{
+                                println("Received Sync information")
+                                var tmp = Json.decodeFromString(SyncDataList.serializer(), m.content).data_list
+                                for (d in tmp.keys){
+                                    if ((data[d]?.modificationTime ?: 0) < (tmp[d]?.modificationTime ?: 0)){
+                                        var t: Data? = tmp[d]
+                                        if (t != null) {
+                                            data.put(d, t)
+                                        }
+                                    }
+                                }
+                            }
 
                             else -> {}
                         }
