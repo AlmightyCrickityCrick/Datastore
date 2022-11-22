@@ -22,21 +22,15 @@ fun Application.configureRouting() {
             } else {
                 var tmp:Data? = null
                 if(dataId !in data.keys){
-                    var src :Node? = null
-                    for (p in system.peers) if (dataLocation[dataId]?.contains(p.id) == true) {
-                        src = p
-                        break}
-                    while(dataId !in data.keys) {
-                        if (src != null) {
-                            TCPClient(src.id, InetSocketAddress(src.address, src.tcpPort), Message(MessageType.dataGet, "$dataId"))
-                        }
-                        delay(300)
+                    for (p in system.peers) if(dataLocation[dataId]?.contains(p.id) == true) {
+                        call.respondRedirect("http://localhost:${p.httpPort}/get/$dataId")
+                        break
                     }
-                }
+                }else{
                 tmp = data[dataId]
-                if(dataLocation[dataId]?.contains(system.self.id) != true) data.remove(dataId)
                 if (tmp != null) {
                     call.respond(Json.encodeToString(String.serializer(), tmp.content))
+                }
                 }
             }
         }
