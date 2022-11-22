@@ -88,6 +88,7 @@ fun getContainers():ArrayList<Int>{
     var toAdd =  ArrayList<Int>()
     while(i < faultToleranceSize){
         var t = (1..3).random()
+        if(t != system.self.id) for(p in system.peers) if (p.id == t && !p.isUp) continue
         if(t !in toAdd){
             i++
             toAdd.add(t)}
