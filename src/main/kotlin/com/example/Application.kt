@@ -6,9 +6,11 @@ import io.ktor.server.netty.*
 import com.example.plugins.*
 import io.ktor.client.*
 import io.ktor.network.sockets.*
+import com.example.Connection
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.Collections
 import kotlin.coroutines.CoroutineContext
 
 lateinit var system : Instance
@@ -20,6 +22,8 @@ var dataLocation = HashMap<Int, ArrayList<Int>>() // idData:listServers
 var faultToleranceSize = 0
 var count = 0
 var client = HttpClient()
+var connections = Collections.synchronizedSet<Connection?>(LinkedHashSet())
+
 
 fun main() {
     system = Json.decodeFromString(Instance.serializer(), File("config/config.json").inputStream().readBytes().toString(Charsets.UTF_8))
@@ -35,6 +39,7 @@ fun main() {
     CoroutineScope(Dispatchers.Default).launch { synchronizeData() }
     checkLeader()
     if (system.self.isLeader) {
+        count = dataLocation.size
         println("!!!!!!!!!!\n\n${system.self} is the leader\n\n!!!!!!!!!!\n" +
                 "\n")
         continueSynchronizationCheck()
@@ -45,6 +50,7 @@ fun openHttp(){
     embeddedServer(Netty, port = system.self.httpPort) {
         configureAdministration()
         configureRouting()
+        configureWebSockets()
 
 
     }.start(wait = false)
@@ -82,7 +88,7 @@ fun synchronizeDataLocation(){
 fun synchronizeData(){
     runBlocking {
         while (true){
-            delay(system.tu.toLong())
+            delay(2000)
             for (p in system.peers) if (p.isUp){
                 println("Compiling data for sync between ${system.self.id} and ${p.id}")
                 var dlist = HashMap<Int, Data>()

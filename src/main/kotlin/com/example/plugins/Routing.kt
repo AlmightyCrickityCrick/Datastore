@@ -45,14 +45,7 @@ fun Application.configureRouting() {
             var d = call.receive<String>()
             var tmp = Data(count, d, System.currentTimeMillis())
             call.respondText(count.toString())
-            var i = 0
-            var toAdd =  ArrayList<Int>()
-            while(i < faultToleranceSize){
-                var t = (1..3).random()
-                if(t !in toAdd){
-                    i++
-                    toAdd.add(t)}
-            }
+            var toAdd = getContainers()
             dataLocation.put(count, toAdd)
             if(system.self.id in toAdd){
                 data[count] = tmp
@@ -94,4 +87,16 @@ fun Application.configureRouting() {
             }
         }
     }
+}
+
+fun getContainers():ArrayList<Int>{
+    var i = 0
+    var toAdd =  ArrayList<Int>()
+    while(i < faultToleranceSize){
+        var t = (1..3).random()
+        if(t !in toAdd){
+            i++
+            toAdd.add(t)}
+    }
+    return toAdd
 }
