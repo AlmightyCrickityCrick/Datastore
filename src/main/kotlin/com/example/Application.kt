@@ -31,9 +31,14 @@ fun main() {
 
     system.self.isUp = true
     notifyUp()
-    checkLeader()
-    if (system.self.isLeader) println("${system.self} is the leader")
     openHttp()
+    CoroutineScope(Dispatchers.Default).launch { synchronizeData() }
+    checkLeader()
+    if (system.self.isLeader) {
+        println("!!!!!!!!!!\n\n${system.self} is the leader\n\n!!!!!!!!!!\n" +
+                "\n")
+        continueSynchronizationCheck()
+    }
 }
 
 fun openHttp(){
@@ -42,7 +47,7 @@ fun openHttp(){
         configureRouting()
 
 
-    }.start(wait = true)
+    }.start(wait = false)
 }
 
 fun notifyUp(){
@@ -71,5 +76,39 @@ fun synchronizeDataLocation(){
             SyncronizeLocationrequest.serializer(), SyncronizeLocationrequest(dataLocation)
         ))
         ) }
+    }
+}
+
+fun synchronizeData(){
+    runBlocking {
+        while (true){
+            delay(system.tu.toLong())
+            for (p in system.peers) if (p.isUp){
+                println("Compiling data for sync between ${system.self.id} and ${p.id}")
+                var dlist = HashMap<Int, Data>()
+                for (d in data){
+                    if (dataLocation[d.key]?.contains(p.id) == true) dlist.put(d.key, d.value)
+                }
+                launch{TCPClient(p.id, InetSocketAddress(p.address, p.tcpPort), Message(MessageType.dataSync, Json.encodeToString(SyncDataList.serializer(), SyncDataList(
+                    system.self.id, dlist)
+                )))}
+            }
+        }
+    }
+}
+
+fun continueSynchronizationCheck(){
+    runBlocking {
+        while (true) {
+            delay(5000)
+            for (p in system.peers) if(!p.isUp){
+                for (i in dataLocation.keys){
+                    if (dataLocation[i]?.contains(p.id) == true) dataLocation[i]?.remove(p.id)
+                }
+            }
+            launch{
+                synchronizeDataLocation()
+            }
+        }
     }
 }

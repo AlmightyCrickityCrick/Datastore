@@ -11,7 +11,7 @@ data class Node(var id: Int, var address: String, var httpPort: Int, val tcpPort
 data class Message(var type: MessageType, var content:String)
 
 @Serializable
-data class  DataList(var data_id:Int, var node_list:ArrayList<Data>)
+data class  SyncDataList(var node_id:Int, var data_list:HashMap<Int, Data>)
 @Serializable
 data class Data(var id:Int, var content:String, var modificationTime : Long)
 @Serializable
