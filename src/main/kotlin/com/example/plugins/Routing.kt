@@ -11,6 +11,7 @@ import io.ktor.server.request.*
 import kotlinx.coroutines.delay
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import java.net.http.HttpResponse
 
 
 fun Application.configureRouting() {
@@ -54,7 +55,14 @@ fun Application.configureRouting() {
         post("/post/{id}") {
             var dataId = call.parameters["id"]?.toInt()
             var d = call.receive<String>()
-            if (dataId == null || dataId !in dataLocation.keys) {
+            if(connections.size>0){
+                call.respond(HttpStatusCode.Created)
+                var tmp = system.peers.random()
+                var resp = client.post("http://${tmp.address}:${tmp.httpPort}/post/$dataId"){
+                    setBody(d)
+                }
+            }
+            else if (dataId == null || dataId !in dataLocation.keys) {
                 call.respond("Data not found")
             } else {
                 var tmp = Data(dataId, d, System.currentTimeMillis())
